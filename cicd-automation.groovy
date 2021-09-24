@@ -51,13 +51,13 @@ def qualityGateCheck() {
                             }
                         }
                     }
-                    success("Quality Gate for Passed :)")
+                    success("Quality Gate Passed!")
                     break
                 } catch (e) {
                     count++
                 } finally {
                     if (count >= 5) {
-                        errorMsg("Quality Gate for failed after $count Retries!!")
+                        errorMsg("Quality Gate failed after $count Retries!!")
                     }
                 }
             }
