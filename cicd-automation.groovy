@@ -25,7 +25,7 @@ def runTestIfAny() {
 def runSonarScan() {
     switch("${params.SonarScan}") {
         case "Yes":
-            withSonarQubeEnv(credentialsId: 'SonarQube') {
+            withSonarQubeEnv(credentialsId: 'sonarqube-creds') {
                 withMaven(maven: 'Maven') {
                     sh 'mvn sonar:sonar'
                 }
@@ -44,7 +44,7 @@ def qualityGateCheck() {
             while (count < 5) {
                 try {
                     timeout(time: 20, unit: 'SECONDS') {
-                        withSonarQubeEnv(credentialsId: 'SonarQube') {
+                        withSonarQubeEnv(credentialsId: 'sonarqube-creds') {
                             def qG = waitForQualityGate()
                             if (qG.status != 'OK') {
                                 error("Quality Gate Failed, Returned $qG.status !!")
@@ -81,10 +81,9 @@ def build() {
 }
 
 def uploadArtifactToArtifactory() {
-    String newVersion = getNewVersion()
     switch("${params.UploadArtifact}") {
         case "Yes":
-            httpRequest authentication: 'artifactory-creds', httpMode: 'PUT', ignoreSslErrors: true, responseHandle: 'NONE', uploadFile: 'abc.sh', url: 'http://10.10.29.102:8082/artifactory/jenkins-packages/abc.sh', wrapAsMultipart: false
+            httpRequest authentication: 'artifactory-creds', httpMode: 'PUT', ignoreSslErrors: true, responseHandle: 'NONE', uploadFile: 'target/my-app-1.0.0-1.jar', url: 'http://10.10.29.102:8082/artifactory/jenkins-packages/my-app-1.0.0-1.jar', wrapAsMultipart: false
         break
         case "No":
             success("Skipped as upload artifact is Disabled.")
@@ -103,7 +102,7 @@ def success(String text) {
 }
 
 node('master') {
-    timeout (time: 1, unit: 'HOURS') {
+    timeout (time: 20, unit: 'MINUTES') {
         ansiColor('xterm') {
             stage ("Code Checkout") {
                 codeCheckout()
@@ -122,6 +121,7 @@ node('master') {
             }
             stage ("Upload package to Artifactory") {
                 uploadArtifactToArtifactory()
+                success("Pipeline Successful.")
             }
         }
     }
