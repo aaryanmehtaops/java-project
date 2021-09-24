@@ -1,17 +1,3 @@
-#!/bin/groovy
-
-properties([[$class: 'JiraProjectProperty'], buildDiscarder(logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '', daysToKeepStr: '2', numToKeepStr: '10')), parameters([choice(choices: ['Yes', 'No'], description: '''<html>
-<h6 style="color:DodgerBlue;">Do you want to run test?</h6>
-</html>''', name: 'RunTest'), choice(choices: ['Yes', 'No'], description: '''<html>
-<h6 style="color:DodgerBlue;">Do you want to run Sonarscan on the project?</h6>
-</html>''', name: 'SonarScan'), choice(choices: ['Yes', 'No'], description: '''<html>
-<h6 style="color:DodgerBlue;">Do you want to upload target jar to Nexus?</h6>
-</html>''', name: 'UploadArtifact'), choice(choices: ['Yes', 'No'], description: '''<html>
-<h6 style="color:DodgerBlue;">Do you want to create JIRA relase task?</h6>
-</html>''', name: 'CreateReleaseTask'), choice(choices: ['Yes', 'No'], description: '''<html>
-<h6 style="color:DodgerBlue;">Do you want to deploy it to Kubernetes environment?</h6>
-</html>''', name: 'Deploy')])])
-
 def codeCheckout() {
     cleanWs()
     checkout scm
@@ -34,34 +20,6 @@ def runTestIfAny() {
     catch (err) {
         errorMsg("ERROR: ${err.message}!")
     }
-}
-
-def versionDump() {
-    try {
-        String newVersion = getNewVersion()
-        withMaven(maven: 'Maven') {
-            sh """
-                mvn -B --no-transfer-progress versions:set -DgenerateBackupPoms=false -DnewVersion=$newVersion
-            """
-        }
-    }
-    catch (err) {
-        errorMsg("ERROR: ${err.message}!")
-    }
-}
-
-String getPomVersion() {
-    def matcher
-    matcher = readFile('pom.xml') =~ '<version>(\\d*)\\.(\\d*)\\.(\\d*)-(\\d*)</version>'
-    matcher ? matcher[0] : null
-}
-
-String getNewVersion() {
-    oldVersion = readMavenPom().getVersion()
-    oldPOMVersion = getPomVersion()
-    def BUILD_NUMB = Integer.parseInt(oldPOMVersion[4]) + 1;
-    newVersion = "${oldPOMVersion[1]}.${oldPOMVersion[2]}.${oldPOMVersion[3]}-${BUILD_NUMB}"
-    return newVersion
 }
 
 def runSonarScan() {
@@ -122,76 +80,14 @@ def build() {
 
 }
 
-def uploadArtifactToNexus() {
+def uploadArtifactToArtifactory() {
     String newVersion = getNewVersion()
     switch("${params.UploadArtifact}") {
         case "Yes":
-            nexusArtifactUploader artifacts: [[artifactId: 'test-application', 
-                classifier: '', 
-                file: "target/*.jar", 
-                type: 'jar']], 
-                credentialsId: 'nexus-creds', 
-                groupId: 'package', 
-                nexusUrl: 'nexusurl', 
-                nexusVersion: 'nexus3', 
-                protocol: 'http', repository: 
-                'automation', 
-                version: newVersion
+            httpRequest authentication: 'artifactory-creds', httpMode: 'PUT', ignoreSslErrors: true, responseHandle: 'NONE', uploadFile: 'abc.sh', url: 'http://10.10.29.102:8082/artifactory/jenkins-packages/abc.sh', wrapAsMultipart: false
         break
         case "No":
             success("Skipped as upload artifact is Disabled.")
-        break
-    }
-}
-
-def deploy() {
-    switch("${params.Deploy}") {
-        case "Yes":
-            try {
-                sh "helm upgrade --install <release-name> <helm-name>"
-                sleep(2)
-                int count = 0;
-                int iterations = 10;
-                while(count < 10) {
-                    if(count < iterations) {
-                        status = sh(returnStdout: true, script:"""kubectl get pods | grep <release-name> | grep -vE "Evicted|Terminated" | grep 0/1 | cat""").trim()
-                        if("${status}") {
-                            sleep(30)
-                            inProcess("<release-name> is not up")
-                            count++;
-                        }
-                        else {
-                            success("<release-name> is up")
-                            break;
-                        }
-                    }
-                    else {
-                        System.exit(0);
-                    }
-                }
-            }
-            catch (err) {
-                errorMsg("ERROR: ${err.message}!")
-            }
-        break
-        case "No":
-            success("Skipped as deployment is Disabled.")
-        break
-    }
-}
-
-def createJiraTicket() {
-    switch("${params.CreateReleaseTask}") {
-        case "Yes":
-            withEnv(['JIRA_SITE=Jira']) {
-                def testIssue = [fields: [ project: [key: 'CICD'],
-                    summary: 'Build is ready for Release!',
-                    issuetype: [name: 'Story']]]
-                response = jiraNewIssue issue: testIssue
-            }
-        break
-        case "No":
-            success("Skipped creating Jira release task as it is Disabled.")
         break
     }
 }
@@ -216,7 +112,6 @@ node('master') {
                 runTestIfAny()
             }
             stage ("Build Project") {
-                versionDump()
                 build()
             }
             stage ("Scanning code with SonarQube") {
@@ -225,14 +120,8 @@ node('master') {
             stage ("Quality Gate") {
                 qualityGateCheck()
             }
-            stage ("Upload package to Nexus") {
-                uploadArtifactToNexus()
-            }
-            stage ("Deploy") {
-                deploy()
-            }
-            stage ("Create JIRA ticket") {
-                createJiraTicket()
+            stage ("Upload package to Artifactory") {
+                uploadArtifactToArtifactory()
             }
         }
     }
